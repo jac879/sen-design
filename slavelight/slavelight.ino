@@ -96,7 +96,7 @@ Adafruit_NeoPixel pixels = Adafruit_NeoPixel(1, color, NEO_GRB + NEO_KHZ800);
 
 void setup() {
 
-  EEPROM.write(11, 0);
+  EEPROM.write(11, 2);
   // put your setup code here, to run once:
   Serial.begin(9600);
 
@@ -162,7 +162,7 @@ void loop() {
     //sendWeatherMessage();
     if(xbee != "")
     {
-      if(xbee.indexOf(lightId + "_weather") != -1)
+      if(xbee.indexOf("_weather") != -1)
       {
         String fire = lightId + "w_";
         fire.concat(parseWeatherData(photocellReading, aRainVal, raining, DHT.temperature, (DHT.temperature * 1.8 + 32), inHg, DHT.humidity));
@@ -244,7 +244,7 @@ void loop() {
           //Serial.println("BAD WEATHER");  
         }
       }
-      else if(xbee.indexOf(lightId + "m_") != -1)
+      else if(xbee.indexOf("m_") != -1)
       { 
         //Serial.println("MODE");
        // Serial.println(xbee);
@@ -531,12 +531,12 @@ void updateLight(int command)
       if(
        //local temp freezing
        (DHT.temperature * 1.8 + 32) < 45 && aRainVal < 499 
-       && (DHT.humidity > 80 || inHg > 30.2 || inHg < 29.8)
+       //&& (DHT.humidity > 80 || inHg > 30.2 || inHg < 29.8)
        //other light freezing
        ||
-        masterPhotocellReading < 3500 &&
+       masterPhotocellReading < 3500 &&
        (masterTemp2) < 45 && masterARainVal < 499 
-       && (masterHumidity > 80 || (masterPres) > 30.2 || (masterPres) < 29.8) &&(masterPres) > 1
+       //&& (masterHumidity > 80 || (masterPres) > 30.2 || (masterPres) < 29.8) &&(masterPres) > 1
        )
        {
         //NOTE: WILL NEED TO SET THE DIGITAL SIGNAL PINS FOR THE RELAYS HIGH RIGHT HERE
@@ -559,13 +559,15 @@ void updateLight(int command)
        //Weather: HEAVY FOG
        // pressure > x , rain value , humidity
        else if(
-        inHg > 29.53 && aRainVal < 500 &&
-        DHT.humidity > 30 &&
+        //inHg > 29.53 &&
+        aRainVal < 500 &&
+        //DHT.humidity > 30 &&
         DHT.temperature * 1.8 + 32 > 86
         ||
         masterPhotocellReading < 3500 &&
-        (masterPres) > 29.53 && masterARainVal < 500 &&
-        masterHumidity > 30 &&
+        //(masterPres) > 29.53 && 
+        masterARainVal < 500 &&
+       // masterHumidity > 30 &&
         masterTemp2 > 86
         
         )
@@ -587,14 +589,14 @@ void updateLight(int command)
         //Weather: HEAVY rain
        // rain value , humidity or pressure
        else if(
-        aRainVal < 500 &&
-        DHT.humidity > 40 &&
-        inHg < 29.80
+        aRainVal < 500 // &&
+       // DHT.humidity > 40 &&
+        //inHg < 29.80
         ||
         masterPhotocellReading < 3500 &&
-        masterARainVal < 500 &&
-        masterHumidity > 40 &&
-        (masterPres) < 29.80
+        masterARainVal < 500 //&&
+        //masterHumidity > 40 &&
+        //(masterPres) < 29.80
         
         )
        {
