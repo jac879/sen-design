@@ -1,41 +1,45 @@
-//set light id in code.
-const String lightId = "aaa001";
-String slaveWeather = "";
-String slaveId = "";
-String conSlaveId = "";
-int printFlop = 0;
-
+//add libraries to project
+//libraries for barometer
+#include <SFE_BMP180.h>
+#include <Wire.h>
+//libraries for humidity sensor
+#include <dht.h>
+//used to connect GPRS shield.
 #include <SoftwareSerial.h> 
+//used to store data when device is off.
 #include <EEPROM.h>
-#include <string.h>
-
-int lightMode = EEPROM.read(11);
-int slaveNum = EEPROM.read(0);
-
 //how EEPROM IS LAID OUT////////////////
 //registers 0 - 10 : slave ids
 //11 : light status code
 //12 - 15: manual mode color
 //257 : last slave index.
 ////////////////////////////////////////
+#include <string.h>
 
-//libraries for barometer
-#include <SFE_BMP180.h>   // Barometer
-#include <Wire.h>
+//set light id in code.
+const String lightId = "aaa001";
 
-//libraries for humidity sensor
-#include <dht.h>
-
+//initalize some vars.
+String slaveWeather = "";
+String slaveId = "";
+String conSlaveId = "";
+int printFlop = 0;
 //set up string buffer for xbee.
 String xbee = "";
+int code;
+
+//get current light mode and slave light id if it is avaliable.
+int lightMode = EEPROM.read(11);
+int slaveNum = 2;
+
 
 //use software serial for gprs shield since xbee and pc use hardware serial.
 //set pins 7 and 8 for software serial.
 SoftwareSerial gprsSerial(7, 8);
 
 //PHOTOCELL VARS HERE///////////////////////////////////////////////////////////////////
-int photocellPin = 0;     // Light sensor the cell and 10K pulldown are connected to a0
-int photocellReading;     // the analog reading from the analog resistor divider
+int photocellPin = 0; 
+int photocellReading; 
 
 //RAIN SENSOR VARS HERE/////////////////////////////////////////////////////////////////
 int aRainVal;
@@ -46,12 +50,11 @@ SFE_BMP180 pressure;
 #define ALTITUDE 102.0 // Altitude of Starkville in METERS
 char status;
 double T,P,p0,a;
+double inHg = 0.00;
 
 //HUMIDTY / THERMOMETER VARS HERE///////////////////////////////////////////////////////
 dht DHT;
 #define DHT11_PIN 4
-
-int code;
 
 //set dimmer pins.
 int redDimmer = 3;
@@ -72,31 +75,19 @@ int whiteFader = 0;
 
 int fadeAmount = 5;
 
-//amouunt of milliseconds since start of arduino
+//initalize milli clocks for time based functions.
 unsigned long previousWeatherMillis = 0;       
-
-//amouunt of milliseconds since start of arduino
 unsigned long previousWeatherUpdateMillis = 0;   
-    
-//amouunt of milliseconds since start of arduino
 unsigned long previousFaderMillis = 0;        
-
-//amouunt of milliseconds since start of arduino
 unsigned long previousZigbeeMillis = 0;       
 
-//amount of time to run weather code from milliseconds.
-const long weatherInterval = 1000;       
+//amount of time to run each clock function in ms.
+const long weatherInterval = 1000;           //get weather data.
+const long weatherUpdateInterval = (60000); //send weather data clock
+const long faderInterval = 100;              //set fader color.
+const long zigbeeInterval = 500;             //send zigbee data.
 
-//amount of time to run weather code from milliseconds.
-const long weatherUpdateInterval = (60000);
-
-//amount of time to run fader code from milliseconds.
-const long faderInterval = 100;
-
-const long zigbeeInterval = 500;
-
-double inHg = 0.00;
-
+//initalize vars for manual settings.
 String redRequest = "";
 String greenRequest = "";
 String blueRequest = "";
@@ -107,6 +98,7 @@ float memGreenRequest = 0;
 float memBlueRequest = 0;
 float memWhiteRequest = 0;
 
+//initalize vars for slave weather data.
 int slavePhotocellReading = 8000;
 int slaveARainVal = 0;
 boolean slaveRaining = false;
@@ -115,27 +107,36 @@ double slaveTemp2 = 0.00;
 double slavePres = 0.00;
 double slaveHumidity = 0.00;
   
-//initalize chip.
+//setup function runs on setup.
 void setup()
 {
-  
   //set gprs baud rate.
   gprsSerial.begin(19200);
-  //set hardware serial to same baud rate.
+  //set hardware serial to 9600 baud rate.
   Serial.begin(9600);
 
   //set digital pin to input for rain sensor boolean.
   pinMode(2,INPUT);
+  
+  Serial.println("WORKING..");
 
-  //initalize barometer
-  if (pressure.begin())
-    Serial.println("BMP180 init success");
+//  //initalize barometer 
+//  if (pressure.begin())
+//    Serial.println("BMP180 init success");
+//  else
+//  {
+//      Serial.println("BMP180 init fail\n\n");
+////    while(1); // Pause forever.
+//   }
   //print to serial console to confirm arduino is working.
   delay(10);
-  //EEPROM.write(0, 0);
-  slaveNum = EEPROM.read(0);
+
+  Serial.println("WORKING..");
+  //get slave id from EEPROM.
+  slaveNum = 2;
+
+  //process slave number into actual string id.
   conSlaveId = "";
-  
   if(slaveNum > 0)
   {
     if(slaveNum < 10)
@@ -159,9 +160,6 @@ void setup()
     }
   }
 
-
-
-
   //set light dimmers as outputs
   pinMode(redDimmer, OUTPUT);
   pinMode(greenDimmer, OUTPUT);
@@ -179,19 +177,21 @@ void setup()
   digitalWrite(blueRelay, HIGH);
   digitalWrite(whiteRelay, HIGH);
 
- // if(lightMode == 6)
- // {
+  Serial.println("WORKING..");
+
+  //if light is in manual settings, get the color percentages from EEPROM.
+  if(lightMode == 6)
+  {
       memRedRequest = EEPROM.read(12);
       memGreenRequest = EEPROM.read(13);
       memBlueRequest = EEPROM.read(14);
       memWhiteRequest = EEPROM.read(15);
-      
-//  }
+  }
+  //update light last mode before shut off.
   updateLight(lightMode);
-
 }
 
-//loop through this function indefinately.
+//loop function loops and loops and loops and loops
 void loop()
 {
   //get current milliseconds to compare
@@ -200,28 +200,30 @@ void loop()
   //run if loop every interval of milliseconds, send weather data here.
   if (currentMillis - previousWeatherUpdateMillis >= weatherUpdateInterval)
   {
-    previousWeatherUpdateMillis = currentMillis; 
-    //print weather data
+    previousWeatherUpdateMillis = currentMillis;  
+    //send weather data to NEXMO.
+    Serial.println("sent text message");
     sendWeatherMessage();
   }
-  //run if loop every interval of milliseconds, send weather data here.
+  //run if loop every interval of milliseconds, update faders.
   if (currentMillis - previousFaderMillis >= faderInterval)
   {
     previousFaderMillis = currentMillis; 
-    //update fader if light is in fading mode
     updateFaders();
   }
-  
-  //run if loop every interval of milliseconds, read zigbee here.
+  //run if loop every interval of milliseconds, read zigbee buffer here.
   if (currentMillis - previousZigbeeMillis >= zigbeeInterval)
   {
     previousZigbeeMillis = currentMillis; 
-    //print zigbee
-     if(xbee.length() > 0)
+
+    //if xbee buffer is not empty.
+    if(xbee.length() > 0)
     {
-      if(xbee.indexOf(conSlaveId + "w_") != -1)
+      //if zigbee buffer contains weather data.
+      if(xbee.indexOf("w_") != -1)
       {
-        
+          //these vars and while loop process the string into the correct parts by the _ delimiter, it 
+          //is better described in the slave light code.
           int count = 0;
           int part = 0;
           String myBuffer = "";
@@ -272,21 +274,24 @@ void loop()
               myBuffer.concat(myChar);  
             }
             count++;
-            
-          }
-          
+        }
 
+        //weather data grabed successfully.
         if(slaveId.length() > 0)
         {
-          
+          //update light mode if light is set to weather active mode.
           if(lightMode == 2)
           {
             updateLight(2);  
           }
+
+          //parse weather data into string for nexmo.
           slaveWeather = "";
           slaveWeather.concat(slaveId);
           slaveWeather.concat("_");
           slaveWeather.concat(parseWeatherData(slavePhotocellReading, slaveARainVal, slaveRaining, slaveTemp, slaveTemp2, slavePres, slaveHumidity));
+          Serial.println("GOOD WEATHER");
+          Serial.println(slaveWeather);
         }
         else
         {
@@ -300,6 +305,7 @@ void loop()
           slaveWeather = "";
         }
       }
+      //check if slave light is sending mode data, not used currently.
       else if(xbee.indexOf(conSlaveId + "m_") != -1)
       {
         Serial.println("UA");  
@@ -307,19 +313,18 @@ void loop()
       else
       {
 //        Serial.print("BAD ");
-//        Serial.println(xbee);  
       }
       xbee = "";
       serialFlush();
-      
     }
   }
   
-  //run if loop every interval of milliseconds, send weather data here.
+  //run if loop every interval of milliseconds, loop through getting weather data, sending light status to
+  //slave, and sending master weather data to slave.
   if (currentMillis - previousWeatherMillis >= weatherInterval)
   {
     previousWeatherMillis = currentMillis; 
-    //print weather data
+    
     if(printFlop == 0)
     {
         getWeatherData();
@@ -334,18 +339,17 @@ void loop()
     {
         String essage = lightId;
         essage.concat("_");
-        essage.concat(parseWeatherData(photocellReading, aRainVal, raining, DHT.temperature, (DHT.temperature * 1.8 + 32), inHg, DHT.humidity));
+        essage.concat(parseWeatherData(photocellReading, aRainVal, raining, T, (DHT.temperature * 1.8 + 32), P, DHT.humidity));
         Serial.println(essage);
         
         printFlop = 0;
     }
-    
   }
 
   //CHECK FOR DATA FROM ZIGBEE/////////////////////////////////////////////
   while(Serial.available()) // if there is incoming serial data
   {
-      xbee.concat(char(Serial.read()));
+      xbee.concat(char(Serial.read()));//push to buffer.
   }
   
   //GET GPRS MESSAGES/////////////////////////////////////////////////////////
@@ -353,13 +357,16 @@ void loop()
   {  //get all of the gprs data in a packet, ie a string instead of by char.
     String smsPacket = gprsSerial.readString();
 
+    //let command log know whats up.
     Serial.println("SMS");
+    Serial.println(smsPacket);
  
     String message = "";
     message = smsPacket.substring(smsPacket.indexOf("aaa")); //clean the string by removing the break in the string.
    
     message.remove(message.indexOf("$"));
-    Serial.println(message);
+
+    //this loop is same as used in the xbee processing above.
     int count = 0;
     int part = 0;
     String myBuffer = "";
@@ -400,12 +407,9 @@ void loop()
       {
         myBuffer.concat(myChar);  
       }
-      count++;
-      
+      count++;   
     }
-    
-
-
+   
 //    Serial.print("FOUND MESSAGE: ");
 //    Serial.print(message.length());
 //    Serial.println("");
@@ -417,66 +421,52 @@ void loop()
 //    Serial.print("command: ");
 //    Serial.println(command);
 
+    //if light command is manual mode.
     if(command == "6") 
     {
 
-//    Serial.print("COLORS: ");
-//    Serial.print(redRequest);
-//    Serial.print(" ");
-//    Serial.print(greenRequest);
-//    Serial.print(" ");
-//    Serial.print(blueRequest);
-//    Serial.print(" ");
-//    Serial.print(whiteRequest);
-//    Serial.println(" ");
-
-      if(memRedRequest != redRequest.toInt() || memGreenRequest != greenRequest.toInt() || memBlueRequest != blueRequest.toInt() || memWhiteRequest != whiteRequest.toInt()) 
-      {
-        EEPROM.write(12, redRequest.toInt());
-        EEPROM.write(13, greenRequest.toInt());
-        EEPROM.write(14, blueRequest.toInt());
-        EEPROM.write(15, whiteRequest.toInt());        
-      }
+      //write manual color data to EEPROM and set mem vars.
+      EEPROM.write(12, redRequest.toInt());
+      EEPROM.write(13, greenRequest.toInt());
+      EEPROM.write(14, blueRequest.toInt());
+      EEPROM.write(15, whiteRequest.toInt());
 
       memRedRequest = redRequest.toInt();
       memGreenRequest = greenRequest.toInt();
       memBlueRequest = blueRequest.toInt();
       memWhiteRequest = whiteRequest.toInt();
-    } else if(command == "7")
+    } 
+    //if command is set slave light.
+    else if(command == "7")
     {
      // Serial.println("ACCESS RADIO");
     }
     else
     {
-      
         redRequest = "";
         blueRequest = "";
         greenRequest = "";
         whiteRequest = "";    
     }
     
- 
- 
     //check for AT command that new message was recieved.
     if(smsPacket.indexOf("CMTI:") != -1)
     {
-    // Serial.println("NEW MESSAGE RECIEVED");
+      Serial.println("NEW MESSAGE RECIEVED");
       getMessages(); //get the new message(s)
     }
     //check for AT command that message was read by arduino.  this should run when getMessages() runs.
     else if(smsPacket.indexOf("CMGL:") != -1)
     {
       //Serial.println("MESSAGE READ");
-      //Serial.println(smsPacket);
-        
-      ////Serial.print(requestedId);
-      //Serial.print(command);
+//      Serial.println(smsPacket);
+////        
+//      Serial.print(requestedId);
+//      Serial.print(command);
 //       
 //      Serial.println(incomingNum);
 //      Serial.println(message);
 
-      
-      
       code = command.toInt();
 
       if(requestedId == lightId)
@@ -511,6 +501,7 @@ void loop()
 
       deleteMessages(); //delete message after read.
     }
+    
     //check for AT command that messages are being retreived from sim card.  this should also run when getMessages runs. 
     //(AT command same, one is requesting, other is listing. notice '=' and ':')
     else if(smsPacket.indexOf("CMGL=") != -1)
@@ -531,8 +522,6 @@ void loop()
       
       deleteMessages();
     }
-
-
   }
 }
 
@@ -578,6 +567,7 @@ void addLight(String light)
       conSlaveId = "NO LIGHT CONNECTED";  
     }
 
+    conSlaveId="aaa002";
     updateLight(1);
   }
 
@@ -744,7 +734,7 @@ void sendWeatherMessage()
 {
   String finalMessage = lightId;
   finalMessage.concat("_");
-  finalMessage.concat(parseWeatherData(photocellReading, aRainVal, raining, DHT.temperature, (DHT.temperature  * 1.8 + 32), inHg, DHT.humidity));
+  finalMessage.concat(parseWeatherData(photocellReading, aRainVal, raining, T, (DHT.temperature  * 1.8 + 32), P, DHT.humidity));
 
   if(slaveId == conSlaveId)
   {
@@ -754,13 +744,13 @@ void sendWeatherMessage()
     slaveId = "";
   }
 
-  Serial.println("SEND WEATHER DATA");
+  //Serial.println("SEND WEATHER DATA");
   Serial.println(finalMessage);
   
   gprsSerial.print("AT+CMGF=1\r"); // Set the shield to SMS mode
   delay(100);
   // set number to send.
-  gprsSerial.println("AT+CMGS = \"+12016219300\"");
+  gprsSerial.println("AT+CMGS = \"+12017628320\"");
   //gprsSerial.println("AT+CMGS = \"+12286710743\"");
   delay(100);
   //set content of message
@@ -871,38 +861,42 @@ void getWeatherData()
   raining = !(digitalRead(2));
  
   //BAROMETER / THERMOMETER CODE HERE////////////////////////////////////////////
-  
-  status = pressure.startTemperature();
-  if (status != 0)
-  {
-    // Wait for the measurement to complete:
-    delay(status);
-    status = pressure.getTemperature(T);
-    if (status != 0)
-    {
-      // Print out the measurement:
-      //Serial.print(T,2); //temp in Celcius
-      
-      status = pressure.startPressure(3);
-      if (status != 0)
-      {
-        // Wait for the measurement to complete:
-        delay(status);
-        status = pressure.getPressure(P,T);
-        inHg =  P*0.0295333727;
-        if (status != 0)
-        { 
-          //  Serial.print(P,2); //pressure in millibars
-          p0 = pressure.sealevel(P,ALTITUDE); //sea level pressure
-          a = pressure.altitude(P,p0);//altitude in meters
-        }
-        else Serial.println("error retrieving pressure measurement\n");
-      }
-      else Serial.println("error starting pressure measurement\n");
-    }
-    else Serial.println("error retrieving temperature measurement\n");
-  }
-  else Serial.println("error starting temperature measurement\n");
+//  
+//  Serial.print("working here");
+//  status = pressure.startTemperature();
+//  if (status != 0)
+//  {
+//      Serial.print("working here");
+//    // Wait for the measurement to complete:
+//    delay(status);
+//    status = pressure.getTemperature(T);
+//    if (status != 0)
+//    {
+//      Serial.print("working here");
+//      // Print out the measurement:
+//      //Serial.print(T,2); //temp in Celcius
+//      
+//      status = pressure.startPressure(3);
+//      if (status != 0)
+//      {
+//        Serial.print("working here");
+//        // Wait for the measurement to complete:
+//        delay(status);
+//        status = pressure.getPressure(P,T);
+//        inHg =  P*0.0295333727;
+//        if (status != 0)
+//        { 
+//          //  Serial.print(P,2); //pressure in millibars
+//          p0 = pressure.sealevel(P,ALTITUDE); //sea level pressure
+//          a = pressure.altitude(P,p0);//altitude in meters
+//        }
+//        else Serial.println("error retrieving pressure measurement\n");
+//      }
+//      else Serial.println("error starting pressure measurement\n");
+//    }
+//    else Serial.println("error retrieving temperature measurement\n");
+//  }
+//  else Serial.println("error starting temperature measurement\n");
 
   delay(10);  // Pause for 5 seconds.
 
